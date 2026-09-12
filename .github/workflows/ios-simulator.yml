@@ -1,0 +1,77 @@
+name: iOS simulator build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-simulator-main
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Import verified source package once
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f LAS-Customer-GitHub.zip; then
+            echo 'ea1fe328c6fe722a09fae6fc55e0e79c36dfb1e55c0676779b2050a5c14454f7  LAS-Customer-GitHub.zip' | sha256sum --check
+            python3 - <<'PY'
+          import pathlib, zipfile
+          with zipfile.ZipFile('LAS-Customer-GitHub.zip') as archive:
+              for item in archive.infolist():
+                  path = pathlib.PurePosixPath(item.filename)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit('Unsafe archive path')
+                  if path.parts[0] in ('.github', '.git'):
+                      continue
+                  if pathlib.Path(item.filename).exists():
+                      raise SystemExit('Refusing to overwrite existing source')
+                  archive.extract(item, '.')
+          PY
+            git rm LAS-Customer-GitHub.zip
+            git add .
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Expand verified LAS customer app 0.3.0 source'
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  simulator:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PORTAL_ORIGIN: https://dms.lastoptechnik.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - name: Install pinned Flutter SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = d3b14c876900e553bc736ca19295fc09e3853e8e
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Analyze, test and build unsigned simulator app
+        run: bash scripts/check_ios.sh
+      - name: Preserve app permissions in archive
+        run: |
+          test -d build/ios/iphonesimulator/Runner.app
+          tar -czf build/LAS-Customer-simulator.tar.gz -C build/ios/iphonesimulator Runner.app
+      - uses: actions/upload-artifact@v7
+        with:
+          name: LAS-Customer-simulator
+          path: build/LAS-Customer-simulator.tar.gz
+          if-no-files-found: error
+          retention-days: 7
