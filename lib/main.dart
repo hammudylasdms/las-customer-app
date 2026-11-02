@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'navigation_policy.dart';
 import 'push_service.dart';
+import 'device_login.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +47,9 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool failed = false;
   bool obscured = false;
   bool pushBusy = false;
+  bool loginBusy = false;
+  static const deviceLoginEnabled = bool.fromEnvironment('ENABLE_DEVICE_LOGIN');
+  late final DeviceLogin deviceLogin;
   static const pushEnabled = bool.fromEnvironment('ENABLE_PUSH');
   late final PushService push;
   final appLinks = AppLinks();
@@ -67,6 +72,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       );
     }
     controller = WebViewController.fromPlatformCreationParams(params);
+    deviceLogin = DeviceLogin(widget.policy.origin, controller);
     push = PushService(controller, widget.policy);
     unawaited(_configure());
   }
@@ -89,6 +95,13 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             final uri = Uri.tryParse(request.url);
             if (uri == null) return NavigationDecision.prevent;
             final action = widget.policy.classify(uri);
+            if (deviceLoginEnabled &&
+                Platform.isIOS &&
+                request.isMainFrame &&
+                widget.policy.sameOrigin(uri) &&
+                uri.path == '/customer/logout') {
+              await deviceLogin.forget();
+            }
             if (action == LinkAction.portal) return NavigationDecision.navigate;
             // Hosted checkout embeds HTTPS frames; their cookies remain scoped
             // by the platform browser. External top-level pages open separately.
@@ -162,6 +175,87 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _deviceLogin(String action) async {
+    if (loginBusy) return;
+    setState(() => loginBusy = true);
+    try {
+      if (action == 'enable') {
+        final username = TextEditingController();
+        final password = TextEditingController();
+        try {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Enable Face ID'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Confirm your portal login once. Your password is not saved. Face ID, Touch ID or your iPhone passcode will protect future sign-ins for up to 90 days.',
+                    ),
+                    TextField(
+                      controller: username,
+                      autocorrect: false,
+                      textCapitalization: TextCapitalization.none,
+                      decoration: const InputDecoration(labelText: 'Username'),
+                    ),
+                    TextField(
+                      controller: password,
+                      obscureText: true,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      decoration: const InputDecoration(labelText: 'Password'),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Enable'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed == true) {
+            await deviceLogin.enroll(username.text.trim(), password.text);
+            _notice('Device sign-in enabled.');
+          }
+        } finally {
+          username.dispose();
+          password.clear();
+          password.dispose();
+        }
+      } else if (action == 'disable') {
+        await deviceLogin.disable();
+        _notice('Device sign-in disabled.');
+      } else {
+        await deviceLogin.login();
+      }
+    } on LoginFailure catch (error) {
+      _notice(switch (error.reason) {
+        'password' =>
+          'Please sign in with your portal password and enable Face ID again.',
+        'enroll' =>
+          'Choose Enable Face ID and confirm your portal login first.',
+        'passcode' => 'Set an iPhone passcode before enabling device sign-in.',
+        _ =>
+          'Device sign-in is not available. You can still use your portal password.',
+      });
+    } catch (_) {
+      _notice(
+        'Device sign-in was not completed. You can retry or use your portal password.',
+      );
+    } finally {
+      if (mounted) setState(() => loginBusy = false);
     }
   }
 
@@ -260,6 +354,27 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
+          if (deviceLoginEnabled && Platform.isIOS)
+            PopupMenuButton<String>(
+              tooltip: 'Face ID',
+              enabled: !loginBusy,
+              icon: loginBusy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.face_outlined),
+              onSelected: (action) => unawaited(_deviceLogin(action)),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'login',
+                  child: Text('Sign in with Face ID'),
+                ),
+                PopupMenuItem(value: 'enable', child: Text('Enable Face ID')),
+                PopupMenuItem(value: 'disable', child: Text('Disable Face ID')),
+              ],
+            ),
           if (pushEnabled)
             PopupMenuButton<bool>(
               tooltip: 'Notifications',
