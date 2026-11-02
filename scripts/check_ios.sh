@@ -10,6 +10,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 export PORTAL_ORIGIN="${PORTAL_ORIGIN:-https://dms.lastoptechnik.com}"
+swift scripts/prepare_branding.swift
 python3 - <<'PY'
 import os
 from urllib.parse import urlsplit

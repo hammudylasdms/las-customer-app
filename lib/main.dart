@@ -10,6 +10,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'navigation_policy.dart';
 import 'push_service.dart';
 import 'device_login.dart';
+import 'brand_intro.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,13 +24,13 @@ void main() {
   );
   runApp(
     MaterialApp(
-      title: 'LAS Top Technik',
+      title: 'My LAS',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1967ce)),
         scaffoldBackgroundColor: Colors.white,
       ),
-      home: PortalApp(policy: policy),
+      home: BrandedEntry(child: PortalApp(policy: policy)),
     ),
   );
 }

@@ -73,6 +73,7 @@ project.save
 RUBY
 /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName My LAS' ios/Runner/Info.plist
 build_number="$((100 + GITHUB_RUN_NUMBER)).$GITHUB_RUN_ATTEMPT"
+swift scripts/prepare_branding.swift
 flutter build ipa --release --no-pub --build-name=1.0.0 --build-number="$build_number" \
   --dart-define=ENABLE_PUSH=false --dart-define=ENABLE_DEVICE_LOGIN="${ENABLE_DEVICE_LOGIN:-false}" --dart-define=PORTAL_ORIGIN=https://dms.lastoptechnik.com \
   --export-options-plist="$signing_dir/ExportOptions.plist"

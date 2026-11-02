@@ -45,7 +45,10 @@ class DeviceLogin {
     await webView.loadRequest(
       origin.resolve('/customer/mobile/auth/handoff'),
       method: LoadRequestMethod.post,
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-LAS-Native-Handoff': '1',
+      },
       body: Uint8List.fromList(
         utf8.encode('ticket_value=${Uri.encodeQueryComponent(ticket)}'),
       ),
