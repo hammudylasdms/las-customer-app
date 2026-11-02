@@ -14,6 +14,7 @@ import 'push_service.dart';
 import 'device_login.dart';
 import 'brand_intro.dart';
 import 'login_screen.dart';
+import 'portal_presentation.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +33,11 @@ void main() {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1967ce)),
         scaffoldBackgroundColor: Colors.white,
+        navigationBarTheme: const NavigationBarThemeData(
+          labelTextStyle: WidgetStatePropertyAll(
+            TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+        ),
       ),
       home: BrandedEntry(child: PortalApp(policy: policy)),
     ),
@@ -53,6 +59,8 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool pushBusy = false;
   bool loginBusy = false;
   bool showLogin = false;
+  bool faceIdEnrolled = false;
+  int selectedTab = 0;
   Completer<bool>? loginNavigation;
   static const deviceLoginEnabled = bool.fromEnvironment('ENABLE_DEVICE_LOGIN');
   late final DeviceLogin deviceLogin;
@@ -85,6 +93,11 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
 
   Future<void> _configure() async {
     try {
+      if (deviceLoginEnabled && Platform.isIOS) {
+        try {
+          faceIdEnrolled = await deviceLogin.isEnrolled();
+        } catch (_) {}
+      }
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.setBackgroundColor(Colors.white);
       if (pushEnabled) {
@@ -106,7 +119,11 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
                 request.isMainFrame &&
                 widget.policy.sameOrigin(uri) &&
                 uri.path == '/customer/logout') {
-              await deviceLogin.forget();
+              await controller.loadRequest(
+                widget.policy.origin.resolve('/customer/session/expire'),
+                method: LoadRequestMethod.post,
+              );
+              return NavigationDecision.prevent;
             }
             if (action == LinkAction.portal) return NavigationDecision.navigate;
             // Hosted checkout embeds HTTPS frames; their cookies remain scoped
@@ -146,6 +163,23 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
                   uri.path == '/customer/' ||
                   uri.path == '/customer/login';
               if (mounted) setState(() => showLogin = loginPage);
+              if (!loginPage) {
+                unawaited(
+                  controller
+                      .runJavaScript(portalPresentation)
+                      .catchError((Object _) {}),
+                );
+              }
+              if (loginPage && deviceLoginEnabled && Platform.isIOS) {
+                unawaited(
+                  deviceLogin
+                      .isEnrolled()
+                      .then((value) {
+                        if (mounted) setState(() => faceIdEnrolled = value);
+                      })
+                      .catchError((Object _) {}),
+                );
+              }
               final pending = loginNavigation;
               if (pending != null && !pending.isCompleted) {
                 pending.complete(
@@ -369,6 +403,51 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => Stack(
     children: [
       Scaffold(
+        backgroundColor: const Color(0xff17191b),
+        appBar: AppBar(
+          backgroundColor: const Color(0xff202224),
+          foregroundColor: Colors.white,
+          title: const Text('My LAS'),
+          actions: [
+            IconButton(
+              tooltip: 'Back',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () async {
+                if (await controller.canGoBack()) await controller.goBack();
+              },
+            ),
+            if (deviceLoginEnabled && Platform.isIOS)
+              PopupMenuButton<String>(
+                tooltip: 'Face ID',
+                enabled: !loginBusy,
+                icon: const Icon(Icons.face_outlined),
+                onSelected: (action) => unawaited(_deviceLogin(action)),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'enable', child: Text('Enable Face ID')),
+                  PopupMenuItem(
+                    value: 'disable',
+                    child: Text('Disable Face ID'),
+                  ),
+                ],
+              ),
+            if (pushEnabled)
+              IconButton(
+                tooltip: 'Notifications',
+                onPressed: pushBusy
+                    ? null
+                    : () => unawaited(_changeNotifications(true)),
+                icon: const Icon(Icons.notifications_outlined),
+              ),
+            IconButton(
+              tooltip: 'Sign out',
+              icon: const Icon(Icons.logout),
+              onPressed: () => controller.loadRequest(
+                widget.policy.origin.resolve('/customer/session/expire'),
+                method: LoadRequestMethod.post,
+              ),
+            ),
+          ],
+        ),
         body: SafeArea(
           child: Stack(
             children: [
@@ -415,78 +494,47 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             ],
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              if (deviceLoginEnabled && Platform.isIOS)
-                PopupMenuButton<String>(
-                  tooltip: 'Face ID',
-                  enabled: !loginBusy,
-                  icon: loginBusy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.face_outlined),
-                  onSelected: (action) => unawaited(_deviceLogin(action)),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'login',
-                      child: Text('Sign in with Face ID'),
-                    ),
-                    PopupMenuItem(
-                      value: 'enable',
-                      child: Text('Enable Face ID'),
-                    ),
-                    PopupMenuItem(
-                      value: 'disable',
-                      child: Text('Disable Face ID'),
-                    ),
-                  ],
-                ),
-              if (pushEnabled)
-                PopupMenuButton<bool>(
-                  tooltip: 'Notifications',
-                  enabled: !pushBusy,
-                  icon: pushBusy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.notifications_outlined),
-                  onSelected: (enable) =>
-                      unawaited(_changeNotifications(enable)),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: true,
-                      child: Text('Enable notifications'),
-                    ),
-                    PopupMenuItem(
-                      value: false,
-                      child: Text('Disable notifications'),
-                    ),
-                  ],
-                ),
-              IconButton(
-                tooltip: 'Back',
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () async {
-                  if (await controller.canGoBack()) await controller.goBack();
-                },
+        bottomNavigationBar: NavigationBar(
+          backgroundColor: const Color(0xff202224),
+          indicatorColor: const Color(0xff34383c),
+          selectedIndex: selectedTab,
+          onDestinationSelected: (index) {
+            setState(() => selectedTab = index);
+            const paths = [
+              '/customer/dashboard',
+              '/customer/appointments',
+              '/customer/dashboard?app_view=orders',
+              '/customer/messages',
+              '/customer/account',
+            ];
+            unawaited(
+              controller.loadRequest(
+                widget.policy.origin.resolve(paths[index]),
               ),
-              IconButton(
-                tooltip: 'My portal',
-                icon: const Icon(Icons.home_outlined),
-                onPressed: () => controller.loadRequest(
-                  widget.policy.origin.resolve('/customer'),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined, color: Colors.white),
+              label: 'Übersicht',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
+              label: 'Termine',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined, color: Colors.white),
+              label: 'Aufträge',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.chat_bubble_outline, color: Colors.white),
+              label: 'Nachrichten',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline, color: Colors.white),
+              label: 'Profil',
+            ),
+          ],
         ),
       ),
       if (showLogin)
@@ -494,6 +542,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           child: CustomerLoginScreen(
             onSubmit: _submitLogin,
             faceIdAvailable: deviceLoginEnabled && Platform.isIOS,
+            faceIdEnrolled: faceIdEnrolled,
           ),
         ),
       if (showLogin && obscured)

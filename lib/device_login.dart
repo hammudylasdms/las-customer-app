@@ -80,13 +80,11 @@ class DeviceLogin {
   Future<void> login() async {
     final token = await channel.invokeMethod<String>('read');
     if (token == null) throw const LoginFailure('enroll');
-    try {
-      await _handoff(await _post('login', {'token': token}));
-    } on LoginFailure catch (error) {
-      if (error.reason == 'password') await forget();
-      rethrow;
-    }
+    await _handoff(await _post('login', {'token': token}));
   }
+
+  Future<bool> isEnrolled() async =>
+      await channel.invokeMethod<bool>('enrolled') ?? false;
 
   Future<void> disable() async {
     final token = await channel.invokeMethod<String>('read');

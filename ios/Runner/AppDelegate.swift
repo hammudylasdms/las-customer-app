@@ -39,6 +39,12 @@ import AVFoundation
         func finish(_ value: Any?) { DispatchQueue.main.async { result(value) } }
         func failure(_ code: String) { finish(FlutterError(code: code, message: "Device authentication could not be completed.", details: nil)) }
         switch call.method {
+        case "enrolled":
+          var check = query
+          check[kSecReturnAttributes as String] = true
+          check[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+          let status = SecItemCopyMatching(check as CFDictionary, nil)
+          finish(status == errSecSuccess || status == errSecInteractionNotAllowed)
         case "available":
           let context = LAContext()
           finish(context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil))
@@ -120,14 +126,25 @@ private final class LasIntroController: UIViewController {
     for name in [AVPlayerItem.didPlayToEndTimeNotification, AVPlayerItem.failedToPlayToEndTimeNotification] {
       observations.append(NotificationCenter.default.addObserver(forName: name, object: player.currentItem, queue: .main) { [weak self] _ in self?.finish() })
     }
-    observations.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.finish() })
+    observations.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.player.pause()
+      self?.timeout?.invalidate()
+    })
+    observations.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+      guard let self = self, self.completion != nil else { return }
+      self.player.play()
+    })
     statusObservation = player.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
       if item.status == .failed { DispatchQueue.main.async { self?.finish() } }
     }
   }
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
-    timeout = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in self?.finish() }
+    // A startup watchdog only. Playback completes on the actual movie-end event.
+    timeout = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+      guard let self = self else { return }
+      if self.player.timeControlStatus != .playing { self.finish() }
+    }
     player.play()
   }
   override func viewDidLayoutSubviews() {

@@ -7,10 +7,12 @@ class CustomerLoginScreen extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.faceIdAvailable,
+    this.faceIdEnrolled = false,
   });
   final Future<void> Function(String username, String password, bool faceId)
   onSubmit;
   final bool faceIdAvailable;
+  final bool faceIdEnrolled;
   @override
   State<CustomerLoginScreen> createState() => _CustomerLoginScreenState();
 }
@@ -22,6 +24,20 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   bool visible = false;
   bool busy = false;
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    faceId = widget.faceIdAvailable && widget.faceIdEnrolled;
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomerLoginScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.faceIdEnrolled && widget.faceIdEnrolled) {
+      faceId = widget.faceIdAvailable;
+    }
+  }
 
   Future<void> submit() async {
     if (busy) return;
@@ -175,52 +191,66 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
                               ),
                             ],
                           ),
-                          style: TextStyle(color: Colors.white, fontSize: 23),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text.rich(
-                          TextSpan(
-                            children: [
-                              TextSpan(
-                                text: 'My ',
-                                style: TextStyle(
-                                  fontFamily: 'Snell Roundhand',
-                                  fontStyle: FontStyle.italic,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                              TextSpan(
-                                text: 'LAS',
-                                style: TextStyle(fontWeight: FontWeight.w900),
-                              ),
-                            ],
-                          ),
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 56,
-                            height: 1.2,
+                            fontSize: 23,
+                            fontFamily: 'BMWTypeNext',
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Transform.translate(
+                                offset: const Offset(0, 28),
+                                child: const Text(
+                                  'My ',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 56,
+                                    height: 1.2,
+                                    fontFamily: 'Snell Roundhand',
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                              const Text(
+                                'LAS',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 56,
+                                  height: 1.2,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const Spacer(),
                         const SizedBox(height: 100),
-                        AutofillGroup(
-                          child: Column(
-                            children: [
-                              field(
-                                controller: username,
-                                hint: 'Your LAS ID (Username)',
-                                icon: Icons.person_outline,
-                              ),
-                              const SizedBox(height: 12),
-                              field(
-                                controller: password,
-                                hint: 'Password',
-                                icon: Icons.lock_outline,
-                                secret: true,
-                              ),
-                            ],
+                        if (!(faceId && widget.faceIdEnrolled))
+                          AutofillGroup(
+                            child: Column(
+                              children: [
+                                field(
+                                  controller: username,
+                                  hint: 'Your LAS ID (Username)',
+                                  icon: Icons.person_outline,
+                                ),
+                                const SizedBox(height: 12),
+                                field(
+                                  controller: password,
+                                  hint: 'Password',
+                                  icon: Icons.lock_outline,
+                                  secret: true,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                         if (widget.faceIdAvailable)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 12),

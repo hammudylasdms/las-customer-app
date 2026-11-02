@@ -18,6 +18,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 flutter:
+  fonts:
+    - family: BMWTypeNext
+      fonts:
+        - asset: assets/fonts/BMWTypeNextTT-Regular.ttf
   uses-material-design: true
   assets:
     - assets/branding/login_background.png
