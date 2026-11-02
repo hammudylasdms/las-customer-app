@@ -20,5 +20,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/branding/login_background.png
     - assets/branding/app_logo.png
     - assets/branding/intro.mp4

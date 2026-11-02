@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +13,7 @@ import 'navigation_policy.dart';
 import 'push_service.dart';
 import 'device_login.dart';
 import 'brand_intro.dart';
+import 'login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +52,8 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool obscured = false;
   bool pushBusy = false;
   bool loginBusy = false;
+  bool showLogin = false;
+  Completer<bool>? loginNavigation;
   static const deviceLoginEnabled = bool.fromEnvironment('ENABLE_DEVICE_LOGIN');
   late final DeviceLogin deviceLogin;
   static const pushEnabled = bool.fromEnvironment('ENABLE_PUSH');
@@ -133,7 +138,21 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             push.registration.cancelPending();
             if (mounted) setState(() => failed = false);
           },
-          onPageFinished: (_) {
+          onPageFinished: (url) {
+            final uri = Uri.tryParse(url);
+            if (uri != null && widget.policy.sameOrigin(uri)) {
+              final loginPage =
+                  uri.path == '/customer' ||
+                  uri.path == '/customer/' ||
+                  uri.path == '/customer/login';
+              if (mounted) setState(() => showLogin = loginPage);
+              final pending = loginNavigation;
+              if (pending != null && !pending.isCompleted) {
+                pending.complete(
+                  !loginPage && uri.path == '/customer/dashboard',
+                );
+              }
+            }
             if (pushEnabled) {
               unawaited(push.registerCurrentPage());
             }
@@ -141,6 +160,10 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           onWebResourceError: (error) {
             if (mounted && error.isForMainFrame == true) {
               setState(() => failed = true);
+              final pending = loginNavigation;
+              if (pending != null && !pending.isCompleted) {
+                pending.complete(false);
+              }
             }
           },
         ),
@@ -176,6 +199,44 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _submitLogin(
+    String username,
+    String password,
+    bool useFaceId,
+  ) async {
+    if (loginNavigation != null) return;
+    final pending = Completer<bool>();
+    loginNavigation = pending;
+    final completion = pending.future.timeout(
+      const Duration(seconds: 35),
+      onTimeout: () => false,
+    );
+    try {
+      if (useFaceId && deviceLoginEnabled && Platform.isIOS) {
+        if (username.isNotEmpty && password.isNotEmpty) {
+          await deviceLogin.enroll(username, password);
+        } else {
+          await deviceLogin.login();
+        }
+      } else {
+        await controller.loadRequest(
+          widget.policy.origin.resolve('/customer/login'),
+          method: LoadRequestMethod.post,
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: Uint8List.fromList(
+            utf8.encode(
+              'username=${Uri.encodeQueryComponent(username)}&password=${Uri.encodeQueryComponent(password)}',
+            ),
+          ),
+        );
+      }
+      if (!await completion) throw StateError('Sign-in not completed');
+    } finally {
+      if (!pending.isCompleted) pending.complete(false);
+      loginNavigation = null;
     }
   }
 
@@ -296,6 +357,8 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final pending = loginNavigation;
+    if (pending != null && !pending.isCompleted) pending.complete(false);
     WidgetsBinding.instance.removeObserver(this);
     push.dispose();
     unawaited(links?.cancel());
@@ -303,115 +366,138 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Stack(
-        children: [
-          WebViewWidget(controller: controller),
-          if (progress < 100 && !failed)
-            LinearProgressIndicator(value: progress / 100),
-          if (failed)
-            Positioned.fill(
-              child: ColoredBox(
-                color: Colors.white,
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(28),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.wifi_off_outlined, size: 40),
-                        const SizedBox(height: 18),
-                        const Text('The portal could not be loaded.'),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Check your connection and open the portal again.',
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Scaffold(
+        body: SafeArea(
+          child: Stack(
+            children: [
+              WebViewWidget(controller: controller),
+              if (progress < 100 && !failed)
+                LinearProgressIndicator(value: progress / 100),
+              if (failed)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.white,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.wifi_off_outlined, size: 40),
+                            const SizedBox(height: 18),
+                            const Text('The portal could not be loaded.'),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Check your connection and open the portal again.',
+                            ),
+                            const SizedBox(height: 18),
+                            FilledButton(
+                              onPressed: () => controller.loadRequest(
+                                widget.policy.origin.resolve('/customer'),
+                              ),
+                              child: const Text('Open portal'),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 18),
-                        FilledButton(
-                          onPressed: () => controller.loadRequest(
-                            widget.policy.origin.resolve('/customer'),
-                          ),
-                          child: const Text('Open portal'),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          if (obscured)
-            const Positioned.fill(
-              child: ColoredBox(
-                color: Colors.white,
-                child: Center(child: Text('LAS Top Technik')),
-              ),
-            ),
-        ],
-      ),
-    ),
-    bottomNavigationBar: SafeArea(
-      top: false,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          if (deviceLoginEnabled && Platform.isIOS)
-            PopupMenuButton<String>(
-              tooltip: 'Face ID',
-              enabled: !loginBusy,
-              icon: loginBusy
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.face_outlined),
-              onSelected: (action) => unawaited(_deviceLogin(action)),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'login',
-                  child: Text('Sign in with Face ID'),
+              if (obscured)
+                const Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.white,
+                    child: Center(child: Text('LAS Top Technik')),
+                  ),
                 ),
-                PopupMenuItem(value: 'enable', child: Text('Enable Face ID')),
-                PopupMenuItem(value: 'disable', child: Text('Disable Face ID')),
-              ],
-            ),
-          if (pushEnabled)
-            PopupMenuButton<bool>(
-              tooltip: 'Notifications',
-              enabled: !pushBusy,
-              icon: pushBusy
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.notifications_outlined),
-              onSelected: (enable) => unawaited(_changeNotifications(enable)),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: true, child: Text('Enable notifications')),
-                PopupMenuItem(
-                  value: false,
-                  child: Text('Disable notifications'),
+            ],
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              if (deviceLoginEnabled && Platform.isIOS)
+                PopupMenuButton<String>(
+                  tooltip: 'Face ID',
+                  enabled: !loginBusy,
+                  icon: loginBusy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.face_outlined),
+                  onSelected: (action) => unawaited(_deviceLogin(action)),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'login',
+                      child: Text('Sign in with Face ID'),
+                    ),
+                    PopupMenuItem(
+                      value: 'enable',
+                      child: Text('Enable Face ID'),
+                    ),
+                    PopupMenuItem(
+                      value: 'disable',
+                      child: Text('Disable Face ID'),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          IconButton(
-            tooltip: 'Back',
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async {
-              if (await controller.canGoBack()) await controller.goBack();
-            },
+              if (pushEnabled)
+                PopupMenuButton<bool>(
+                  tooltip: 'Notifications',
+                  enabled: !pushBusy,
+                  icon: pushBusy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.notifications_outlined),
+                  onSelected: (enable) =>
+                      unawaited(_changeNotifications(enable)),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: true,
+                      child: Text('Enable notifications'),
+                    ),
+                    PopupMenuItem(
+                      value: false,
+                      child: Text('Disable notifications'),
+                    ),
+                  ],
+                ),
+              IconButton(
+                tooltip: 'Back',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () async {
+                  if (await controller.canGoBack()) await controller.goBack();
+                },
+              ),
+              IconButton(
+                tooltip: 'My portal',
+                icon: const Icon(Icons.home_outlined),
+                onPressed: () => controller.loadRequest(
+                  widget.policy.origin.resolve('/customer'),
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'My portal',
-            icon: const Icon(Icons.home_outlined),
-            onPressed: () => controller.loadRequest(
-              widget.policy.origin.resolve('/customer'),
-            ),
-          ),
-        ],
+        ),
       ),
-    ),
+      if (showLogin)
+        Positioned.fill(
+          child: CustomerLoginScreen(
+            onSubmit: _submitLogin,
+            faceIdAvailable: deviceLoginEnabled && Platform.isIOS,
+          ),
+        ),
+      if (showLogin && obscured)
+        const Positioned.fill(child: ColoredBox(color: Colors.white)),
+    ],
   );
 }

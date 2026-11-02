@@ -19,10 +19,10 @@ struct BrandingError: LocalizedError {
 
 func exportIcons() throws {
   let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-  let sourceURL = root.appendingPathComponent("assets/branding/app_logo.png")
+  let sourceURL = root.appendingPathComponent("assets/branding/app_icon.png")
   guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
         let logo = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-    throw BrandingError(message: "Cannot read assets/branding/app_logo.png. Upload this asset before building.")
+    throw BrandingError(message: "Cannot read assets/branding/app_icon.png. Upload this asset before building.")
   }
   let directory = root.appendingPathComponent("ios/Runner/Assets.xcassets/AppIcon.appiconset")
   let manifest = try JSONDecoder().decode(IconManifest.self,
@@ -50,7 +50,8 @@ func exportIcons() throws {
     context.setFillColor(CGColor(gray: 1, alpha: 1))
     context.fill(CGRect(x: 0, y: 0, width: canvas, height: canvas))
     context.interpolationQuality = .high
-    let ratio = min(canvas * 0.86 / CGFloat(logo.width), canvas * 0.86 / CGFloat(logo.height))
+    // The supplied artwork is a complete square icon: fill edge to edge.
+    let ratio = max(canvas / CGFloat(logo.width), canvas / CGFloat(logo.height))
     let width = CGFloat(logo.width) * ratio
     let height = CGFloat(logo.height) * ratio
     context.draw(logo, in: CGRect(x: (canvas - width) / 2,
