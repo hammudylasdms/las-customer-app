@@ -21,11 +21,12 @@ for item in manifest["images"] as! [[String: String]] {
   NSGraphicsContext.current = context
   context.imageInterpolation = .high
   NSColor.white.setFill()
-  NSRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels)).fill()
-  let width = Double(pixels) * 0.86
-  let height = width * logo.size.height / logo.size.width
-  logo.draw(in: NSRect(x: (Double(pixels) - width) / 2,
-                      y: (Double(pixels) - height) / 2,
+  let canvas: CGFloat = CGFloat(pixels)
+  NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
+  let width: CGFloat = canvas * 0.86
+  let height: CGFloat = width * logo.size.height / logo.size.width
+  logo.draw(in: NSRect(x: (canvas - width) / 2,
+                      y: (canvas - height) / 2,
                       width: width, height: height))
   NSGraphicsContext.restoreGraphicsState()
   try bitmap.representation(using: .png, properties: [:])!.write(
