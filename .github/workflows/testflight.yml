@@ -1,6 +1,11 @@
 name: My LAS TestFlight
 on:
   workflow_dispatch:
+    inputs:
+      device_login:
+        description: Enable Face ID (only after the backend update is installed)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -12,6 +17,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     env:
+      ENABLE_DEVICE_LOGIN: ${{ inputs.device_login && 'true' || 'false' }}
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
