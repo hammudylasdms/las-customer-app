@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'brand_wordmark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -201,34 +202,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Transform.translate(
-                                offset: const Offset(0, 28),
-                                child: const Text(
-                                  'My ',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 56,
-                                    height: 1.2,
-                                    fontFamily: 'Snell Roundhand',
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                              const Text(
-                                'LAS',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 56,
-                                  height: 1.2,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
+                          child: const LasWordmark(),
                         ),
                         const Spacer(),
                         const SizedBox(height: 100),

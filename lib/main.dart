@@ -13,6 +13,7 @@ import 'navigation_policy.dart';
 import 'push_service.dart';
 import 'device_login.dart';
 import 'login_screen.dart';
+import 'brand_wordmark.dart';
 import 'portal_presentation.dart';
 
 void main() {
@@ -59,6 +60,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool loginBusy = false;
   bool showLogin = true;
   bool pageReady = false;
+  bool lightAppearance = false;
   bool faceIdEnrolled = false;
   int selectedTab = 0;
   Completer<bool>? loginNavigation;
@@ -100,6 +102,17 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       }
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.setBackgroundColor(Colors.white);
+      await controller.addJavaScriptChannel(
+        'LasAppearance',
+        onMessageReceived: (message) async {
+          final url = await controller.currentUrl();
+          final uri = url == null ? null : Uri.tryParse(url);
+          if (uri == null || !widget.policy.sameOrigin(uri)) return;
+          if (mounted && ['light', 'dark'].contains(message.message)) {
+            setState(() => lightAppearance = message.message == 'light');
+          }
+        },
+      );
       if (pushEnabled) {
         await controller.addJavaScriptChannel(
           'LasPushRegistration',
@@ -403,11 +416,21 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => Stack(
     children: [
       Scaffold(
-        backgroundColor: const Color(0xff17191b),
+        backgroundColor: lightAppearance
+            ? const Color(0xfff3f5f7)
+            : const Color(0xff17191b),
         appBar: AppBar(
-          backgroundColor: const Color(0xff202224),
-          foregroundColor: Colors.white,
-          title: const Text('My LAS'),
+          backgroundColor: lightAppearance
+              ? Colors.white
+              : const Color(0xff202224),
+          foregroundColor: lightAppearance ? Colors.black87 : Colors.white,
+          title: SizedBox(
+            height: 42,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: LasWordmark(size: 24, color: lightAppearance ? Colors.black87 : Colors.white),
+            ),
+          ),
           actions: [
             IconButton(
               tooltip: 'Back',
@@ -494,47 +517,78 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             ],
           ),
         ),
-        bottomNavigationBar: NavigationBar(
-          backgroundColor: const Color(0xff202224),
-          indicatorColor: const Color(0xff34383c),
-          selectedIndex: selectedTab,
-          onDestinationSelected: (index) {
-            setState(() => selectedTab = index);
-            const paths = [
-              '/customer/dashboard',
-              '/customer/appointments',
-              '/customer/dashboard?app_view=orders',
-              '/customer/messages',
-              '/customer/account',
-            ];
-            unawaited(
-              controller.loadRequest(
-                widget.policy.origin.resolve(paths[index]),
+        bottomNavigationBar: Theme(
+          data: Theme.of(context).copyWith(
+            navigationBarTheme: NavigationBarThemeData(
+              labelTextStyle: WidgetStatePropertyAll(
+                TextStyle(
+                  color: lightAppearance ? Colors.black87 : Colors.white70,
+                  fontSize: 11,
+                ),
               ),
-            );
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined, color: Colors.white),
-              label: 'Overview',
             ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
-              label: 'Appointments',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.receipt_long_outlined, color: Colors.white),
-              label: 'Orders',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline, color: Colors.white),
-              label: 'Messages',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline, color: Colors.white),
-              label: 'Profile',
-            ),
-          ],
+          ),
+          child: NavigationBar(
+            backgroundColor: lightAppearance
+                ? Colors.white
+                : const Color(0xff202224),
+            indicatorColor: lightAppearance
+                ? const Color(0xffdce6f0)
+                : const Color(0xff34383c),
+            selectedIndex: selectedTab,
+            onDestinationSelected: (index) {
+              setState(() => selectedTab = index);
+              const paths = [
+                '/customer/dashboard',
+                '/customer/appointments',
+                '/customer/dashboard?app_view=orders',
+                '/customer/messages',
+                '/customer/account',
+              ];
+              unawaited(
+                controller.loadRequest(
+                  widget.policy.origin.resolve(paths[index]),
+                ),
+              );
+            },
+            destinations: [
+              NavigationDestination(
+                icon: Icon(
+                  Icons.dashboard_outlined,
+                  color: lightAppearance ? Colors.black87 : Colors.white,
+                ),
+                label: 'Overview',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.calendar_month_outlined,
+                  color: lightAppearance ? Colors.black87 : Colors.white,
+                ),
+                label: 'Appointments',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.receipt_long_outlined,
+                  color: lightAppearance ? Colors.black87 : Colors.white,
+                ),
+                label: 'Orders',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.chat_bubble_outline,
+                  color: lightAppearance ? Colors.black87 : Colors.white,
+                ),
+                label: 'Messages',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.person_outline,
+                  color: lightAppearance ? Colors.black87 : Colors.white,
+                ),
+                label: 'Profile',
+              ),
+            ],
+          ),
         ),
       ),
       if (!pageReady && !failed && !showLogin)

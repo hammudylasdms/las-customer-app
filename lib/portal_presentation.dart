@@ -1,11 +1,13 @@
 /// Presentation only: keeps the portal's forms, links, permissions and data.
 const portalPresentation = r'''
-(() => {
+(async () => {
   if (!document.querySelector('.navend form[action="/customer/logout"]')) return;
   if (document.getElementById('las-app-style')) return;
   const style = document.createElement('style'); style.id = 'las-app-style';
   const page = location.pathname;
-  const messagesPage = page === '/customer/messages';
+  const appQuery=new URLSearchParams(location.search);
+  const isOverview=page==='/customer/dashboard'&&!appQuery.has('app_view')&&!appQuery.has('app_section');
+  const messagesPage = page === '/customer/messages' || appQuery.get('app_section') === 'advisor';
   const simplifiedPage = page === '/customer/dashboard' || page === '/customer/appointments' || messagesPage || /^\/customer\/orders\/\d+$/.test(page);
   style.textContent = `
     :root{color-scheme:dark;--blue:#007aff}
@@ -29,10 +31,11 @@ const portalPresentation = r'''
     .las-others{margin:18px 0}.las-others summary{padding:16px;background:#252729;border-radius:14px}
   `;
   if (!messagesPage) style.textContent += `
-    #messages,.messages,a[href='/customer/messages']{display:none!important}
+    #messages,.messages,#content a[href='/customer/messages']{display:none!important}
   `;
   if (simplifiedPage) style.textContent += `
-    .balance-card,.news-area,.toast{display:none!important}
+    .toast{display:none!important}
+    ${isOverview ? '' : '.balance-card,.news-area{display:none!important}'}
     #content > p:has(a[href='/customer/archive']){display:none!important}
   `;
   document.head.append(style);
@@ -43,72 +46,96 @@ const portalPresentation = r'''
   });
   normalizeStatuses();
   new MutationObserver(normalizeStatuses).observe(main, {childList:true,subtree:true});
-  const query = new URLSearchParams(location.search);
-  const tile = (href, title, description) => {
-    const link=document.createElement('a');link.href=href;
-    const label=document.createElement('span');label.textContent=title;link.append(label);
-    const sub=document.createElement('small');sub.textContent=description;link.append(sub);return link;
+  const query=new URLSearchParams(location.search), section=query.get('app_section');
+  const overview=page==='/customer/dashboard' && !query.has('app_view') && !section;
+  const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text)e.textContent=text;if(cls)e.className=cls;return e;};
+  const tile=(href,title,sub)=>{const a=el('a');a.href=href;a.append(el('span',title),el('small',sub));return a;};
+  const closed=o=>['INVOICED','CANCELLED','CREDIT_NOTE'].includes(o.status);
+  let data=null;
+  try{
+    const id=/^\/customer\/orders\/(\d+)$/.exec(page)?.[1];
+    const r=await fetch('/customer/mobile/auth/experience'+(id?'?order_id='+id:''),{credentials:'same-origin',cache:'no-store'});
+    if(r.status===401){location.replace('/customer');return;}if(!r.ok)throw Error();data=await r.json();
+  }catch(_){main.prepend(el('p','Some information could not be loaded. Please reopen this page.'));}
+  const orders=data?.orders||[],current=orders.filter(o=>!closed(o)),first=current[0];
+  const vehicle=v=>{
+    const card=el('article',null,'las-vehicle');card.append(el('div','YOUR VEHICLE','eyebrow'));
+    const row=el('div',null,'las-vehicle-row'),text=el('div');
+    if(v.logo){const img=el('img');img.src=v.logo;img.alt=v.brand||'';row.append(img);}
+    text.append(el('h2',[v.brand,v.model].filter(Boolean).join(' - ')),el('p',v.license_plate||'Registration not available'));
+    row.append(text);card.append(row);return card;
   };
-  if (page === '/customer/dashboard' && query.get('app_view') === 'orders') {
-    const grid = main.querySelector('.order-grid');
-    if (grid) {
-      grid.querySelectorAll('.vehicle').forEach(card => {
-        if (['Invoiced','Cancelled'].includes(card.querySelector('.status')?.textContent.trim())) card.remove();
-      });
-      if (!grid.children.length) {
-        const empty = document.createElement('p'); empty.textContent = 'No current orders.'; grid.append(empty);
-      }
+  if(overview){
+    const balance=main.querySelector('.balance-card'),news=main.querySelector('.news-area');
+    const home=el('div');home.append(el('div','Your customer portal','eyebrow'),el('h1','Welcome back.'),el('p','Your workshop visits, documents and updates. All in one place.','sub'));
+    if(balance&&!balance.classList.contains('settled')){
+      const amount=balance.querySelector('.balance-actions > b')?.textContent;
+      if(amount){const row=el('div',null,'las-balance');row.append(el('span','Account balance'),el('strong',(balance.classList.contains('credit')?'+ ':'− ')+amount,balance.classList.contains('credit')?'las-credit':'las-due'));home.append(row);}
     }
-    const title=main.querySelector('h1'); if(title)title.textContent='Current Orders';
+    if(news)home.append(news);
+    if(data){data.vehicles.forEach(v=>home.append(vehicle(v)));if(!data.vehicles.length)home.append(el('p','No vehicle is registered to your account yet.'));}
+    else home.append(el('p','Your vehicles are temporarily unavailable.'));
+    if(first){const active=tile('/customer/orders/'+first.order_id,'Current Order · '+first.order_number,'View your workshop progress');active.className='las-current-order';home.append(active);}
+    const tiles=el('div',null,'las-tiles'),base=first?'/customer/orders/'+first.order_id:'/customer/dashboard';
+    const appointment=tile('/customer/appointments','Request an Appointment','Choose your vehicle and preferred time');appointment.className='las-appointment';
+    tiles.append(appointment,tile(base+'?app_section=photos','my Photos/Videos','Your workshop media'),tile(base+'?app_section=advisor','my Service Advisor','We are here to help'),tile('/customer/dashboard?app_section=history','my Service History','Completed visits and documents'),tile('/customer/mobile/auth/payments','Pay my Bill / Make Downpayment','Open invoices and Add funds'));
+    home.append(tiles);main.replaceChildren(home);
   }
-  if (location.pathname === '/customer/dashboard' && query.get('app_view') !== 'orders') {
-    const grid=main.querySelector('.order-grid');
-    const cards=Array.from(grid?.querySelectorAll('.vehicle') || []);
-    const current=cards.filter(card=>!['Invoiced','Cancelled'].includes(card.querySelector('.status')?.textContent.trim()));
-    const first=current[0];
-    const orderHref=first?.querySelector('a[href^="/customer/orders/"]')?.getAttribute('href');
-    const home=document.createElement('div');home.id='las-overview';
-    const heading=document.createElement('h1');heading.textContent=first?'YOUR WORKSHOP VISIT':'MY LAS';
-    const intro=document.createElement('p');intro.textContent=first?'Your current order and service updates.':'No current order. Your next visit and service history are just a tap away.';
-    home.append(heading,intro);
-    if(first) {
-      const status=first.querySelector('.status');
-      if(status){const hero=document.createElement('p');hero.className='las-hero';hero.textContent=status.textContent;home.append(hero);}
-      home.append(first);
-    }
-    const tiles=document.createElement('div');tiles.className='las-tiles';
-    const appointment=tile('/customer/appointments','Request an Appointment','Choose your vehicle and preferred time');
-    if(!first)tiles.append(appointment);
-    tiles.append(
-      tile(orderHref || '/customer/dashboard?app_view=orders','Order Details',first?'Status and service progress':'No current orders'),
-      tile(orderHref ? orderHref+'#las-photos' : '/customer/archive','my Photos/Videos',first?'Photos and workshop videos':'Select a previous visit to view its media'),
-      tile(orderHref ? orderHref+'#las-advisor' : '/customer/archive','my Service Advisor',first?'Your service contact':'View the advisor for a previous visit'),
-      tile('/customer/archive','my Service History','Previous visits and documents'),
-      tile('/customer/mobile/auth/payments','Pay my Bill / Make Downpayment','Open invoices, payment options and Add funds'));
-    if(first)tiles.append(appointment);
-    home.append(tiles);
-    const other=current.slice(1);
-    if(other.length){const details=document.createElement('details');details.className='las-others';const summary=document.createElement('summary');summary.textContent='Other orders ('+other.length+')';details.append(summary,...other);home.append(details);}
+  if(page==='/customer/dashboard' && query.get('app_view')==='orders'){
+    const home=el('div');home.append(el('h1','Current Orders'));
+    if(!data)home.append(el('p','Orders could not be loaded. Please try again.'));
+    else if(!current.length)home.append(el('p','No current orders.'));
+    else current.forEach(o=>{const card=vehicle(o);card.append(tile('/customer/orders/'+o.order_id,'Order '+o.order_number,'View order'));home.append(card);});
     main.replaceChildren(home);
   }
-  if (/^\/customer\/orders\/\d+$/.test(page)) {
-    const markSections = () => {
-      main.querySelectorAll('section.panel').forEach(section => {
-        const heading = section.querySelector('h2');
-        if (heading?.textContent === 'Your workshop videos') {
-          heading.textContent = 'Photos & Videos';
-        }
-        if (heading?.textContent === 'Photos & Videos') section.id = 'las-photos';
-        if (section.querySelector('.detail') && heading?.textContent === 'Current status') section.id = 'las-advisor';
-      });
-    };
-    markSections();
-    new MutationObserver(markSections).observe(main, {childList:true,subtree:true});
-    if (['#las-photos','#las-advisor'].includes(location.hash)) {
-      document.getElementById(location.hash.slice(1))?.scrollIntoView({block:'start'});
-    }
+  if(section==='history'){
+    const home=el('div');home.append(el('h1','my Service History'));
+    if(!data)home.append(el('p','Service history could not be loaded. Please try again.'));
+    else {const history=orders.filter(closed);history.forEach(o=>{const card=vehicle(o);card.prepend(el('p','Order '+o.order_number+' · '+(o.status==='CANCELLED'?'Cancelled':'Invoiced')));card.append(tile('/customer/orders/'+o.order_id,'View order & documents','Invoice and payment receipts'));home.append(card);});if(!history.length)home.append(el('p','No completed orders yet.'));}
+    main.replaceChildren(home);
   }
-  // Keep appointment entry as a neutral tile; hide the redundant legacy CTA.
-  main.querySelectorAll('a.button[href="/customer/appointments"]').forEach(link => link.style.setProperty('display','none','important'));
+  if(section==='photos'||section==='advisor'){
+    style.textContent+='#order-content > :not(.las-focus){display:none!important}';
+    const focus=()=>{
+      const container=main.querySelector('#order-content')||main;if(container.querySelector('.las-focus'))return;
+      const panel=el('section',null,'panel las-focus');
+      if(section==='photos'){
+        panel.append(el('h1','my Photos/Videos'));
+        const source=Array.from(container.querySelectorAll('section.panel')).find(s=>s.querySelector('h2')?.textContent==='Your workshop videos');
+        const media=source&&!source.hidden?Array.from(source.querySelectorAll('article')):[];
+        if(media.length)media.forEach(m=>panel.append(m));else panel.append(el('p','No current photos / videos.'));
+      }else{
+        const order=orders.find(o=>o.order_id===Number(page.split('/').pop()));
+        const name=order?.advisor_name||container.querySelector('.detail strong')?.textContent;
+        panel.append(el('h1','my Service Advisor'),el('h2',name||'LAS Service Team'),el('p',name?'Your service advisor is here to help with your workshop visit. Send us a message below — we will be happy to assist you.':'We are here to help. A service advisor will be assigned when your workshop order is created.'));
+        const tel=el('a','Tel: +971 50 881 4512');tel.href='tel:+971508814512';const email=el('a','office@lastoptechnik.com');email.href='mailto:office@lastoptechnik.com';panel.append(tel,el('br'),email);
+      }
+      if(container===main){const chat=main.querySelector('#messages');main.replaceChildren(panel);if(chat&&section==='advisor')main.append(chat);}else container.prepend(panel);
+    };
+    focus();const content=main.querySelector('#order-content');if(content)new MutationObserver(focus).observe(content,{childList:true});
+  }
+  if(/^\/customer\/orders\/\d+$/.test(page)&&!section&&data){
+    const receipts=el('section',null,'panel');receipts.append(el('h2','Invoices & payment receipts'));
+    data.documents.filter(d=>['INVOICE','CREDIT_NOTE'].includes(d.document_type)).forEach(d=>receipts.append(tile('/customer/account/documents/'+d.document_id,d.document_type==='INVOICE'?'Invoice':'Credit note',d.file_name)));
+    data.receipts.forEach(r=>receipts.append(tile('/customer/receipts/'+encodeURIComponent(r.receipt_number),'Payment receipt '+r.receipt_number,'AED '+Number(r.amount).toFixed(2))));
+    if(!data.receipts.length)receipts.append(el('p','No payment receipts are available for this order yet.'));main.append(receipts);
+  }
+  const applyTheme=value=>{document.documentElement.dataset.lasTheme=value;try{localStorage.setItem('las-theme',value);}catch(_){}window.LasAppearance?.postMessage(value);};
+  const switcher=el('div',null,'las-appearance'),label=el('label','Appearance '),select=el('select');
+  for(const [value,text] of [['dark','Dark'],['light','Light']]){const option=el('option',text);option.value=value;select.append(option);}
+  let saved='dark';try{saved=localStorage.getItem('las-theme')||'dark';}catch(_){}select.value=saved;select.onchange=()=>applyTheme(select.value);label.append(select);switcher.append(label);main.before(switcher);applyTheme(saved);
+  style.textContent+=`
+    .las-appearance{max-width:900px;margin:auto;padding:12px 20px;text-align:right}.las-appearance select{width:auto;padding:8px;margin-left:8px}
+    .las-balance{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid #555}.las-balance .las-credit{color:#25b875!important}.las-balance .las-due{color:#ff6363!important}
+    .las-vehicle{padding:24px;margin:18px 0}.las-vehicle-row{display:flex;align-items:center;gap:20px;margin-top:20px}.las-vehicle-row img{width:58px;height:58px;object-fit:contain}.las-vehicle h2{font-size:18px!important;margin:0}.las-vehicle p{margin:8px 0 0}.las-tiles{grid-template-columns:1fr!important}.las-tiles .las-appointment{background:#007aff!important;color:white!important}.las-appointment small{color:white!important}
+    .las-current-order{display:block;padding:20px;background:#252729;border-radius:16px}.las-current-order small{display:block;margin-top:8px}.news-area{padding:16px!important;margin:16px 0!important}.news-area h2{font-size:17px!important;margin:0 0 8px}.panel>a{display:block;margin:12px 0}
+    html[data-las-theme=light]{color-scheme:light!important}html[data-las-theme=light],html[data-las-theme=light] body{background:#f3f5f7!important;color:#1c2430!important}
+    html[data-las-theme=light] h1,html[data-las-theme=light] h2,html[data-las-theme=light] h3,html[data-las-theme=light] label,html[data-las-theme=light] strong{color:#1c2430!important}
+    html[data-las-theme=light] p,html[data-las-theme=light] .meta,html[data-las-theme=light] .sub,html[data-las-theme=light] .eyebrow{color:#525d6c!important}
+    html[data-las-theme=light] article,html[data-las-theme=light] section,html[data-las-theme=light] .panel,html[data-las-theme=light] .card,html[data-las-theme=light] .las-tiles a,html[data-las-theme=light] .las-current-order{background:white!important;color:#1c2430!important;border-color:#d6dce4!important}
+    html[data-las-theme=light] input,html[data-las-theme=light] textarea,html[data-las-theme=light] select{background:white!important;color:#1c2430!important;border-color:#abb4c0!important}
+    html[data-las-theme=light] .las-tiles small{color:#525d6c}html[data-las-theme=light] .las-tiles .las-appointment,html[data-las-theme=light] .las-appointment small{color:white!important;background:#007aff!important}
+    html[data-las-theme=light] .las-credit{color:#087c49!important}html[data-las-theme=light] .las-due{color:#c02b35!important}html[data-las-theme=light] td,html[data-las-theme=light] th{color:#1c2430!important}
+  `;
 })();
 ''';
