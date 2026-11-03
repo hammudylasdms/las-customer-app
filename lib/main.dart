@@ -12,7 +12,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'navigation_policy.dart';
 import 'push_service.dart';
 import 'device_login.dart';
-import 'brand_intro.dart';
 import 'login_screen.dart';
 import 'portal_presentation.dart';
 
@@ -39,7 +38,7 @@ void main() {
           ),
         ),
       ),
-      home: BrandedEntry(child: PortalApp(policy: policy)),
+      home: PortalApp(policy: policy),
     ),
   );
 }
@@ -517,7 +516,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.dashboard_outlined, color: Colors.white),
-              label: 'ÃƒÅ“bersicht',
+              label: 'Overview',
             ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
@@ -525,7 +524,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             ),
             NavigationDestination(
               icon: Icon(Icons.receipt_long_outlined, color: Colors.white),
-              label: 'AuftrÃƒÂ¤ge',
+              label: 'Orders',
             ),
             NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline, color: Colors.white),

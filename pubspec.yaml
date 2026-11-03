@@ -26,4 +26,3 @@ flutter:
   assets:
     - assets/branding/login_background.png
     - assets/branding/app_logo.png
-    - assets/branding/intro.mp4

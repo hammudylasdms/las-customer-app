@@ -2,7 +2,6 @@ import Flutter
 import UIKit
 import LocalAuthentication
 import Security
-import AVFoundation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -13,36 +12,9 @@ import AVFoundation
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  private func presentBrandIntro(registrar: FlutterPluginRegistrar, result: @escaping FlutterResult, remainingAttempts: Int) {
-    guard !UIAccessibility.isReduceMotionEnabled else { result(nil); return }
-    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-      .first { $0.activationState == .foregroundActive }
-    guard let root = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController,
-          root.viewIfLoaded?.window != nil, root.presentedViewController == nil else {
-      if remainingAttempts > 0 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          self.presentBrandIntro(registrar: registrar, result: result, remainingAttempts: remainingAttempts - 1)
-        }
-      } else { result(FlutterError(code: "intro_not_ready", message: "Intro window was not ready", details: nil)) }
-      return
-    }
-    guard let path = Bundle.main.path(forResource: registrar.lookupKey(forAsset: "assets/branding/intro.mp4"), ofType: nil) else {
-      result(FlutterError(code: "intro_missing", message: "Intro video is missing from the app", details: nil)); return
-    }
-    let intro = LasIntroController(url: URL(fileURLWithPath: path)) { result(nil) }
-    intro.modalPresentationStyle = .fullScreen
-    root.present(intro, animated: false)
-  }
-
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LasDeviceLogin")!
-    let introChannel = FlutterMethodChannel(name: "com.lastoptechnik/brand_intro", binaryMessenger: registrar.messenger())
-    introChannel.setMethodCallHandler { call, result in
-      guard call.method == "play" else { result(FlutterMethodNotImplemented); return }
-      DispatchQueue.main.async { self.presentBrandIntro(registrar: registrar, result: result, remainingAttempts: 30) }
-    }
-
     let channel = FlutterMethodChannel(name: "com.lastoptechnik/device_login", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { call, result in
       DispatchQueue.global(qos: .userInitiated).async {
@@ -101,81 +73,3 @@ import AVFoundation
   }
 }
 
-private final class LasIntroController: UIViewController {
-  private let player: AVPlayer
-  private let videoLayer: AVPlayerLayer
-  private var completion: (() -> Void)?
-  private var observations: [NSObjectProtocol] = []
-  private var statusObservation: NSKeyValueObservation?
-  private var timeout: Timer?
-  init(url: URL, completion: @escaping () -> Void) {
-    let source = AVPlayer(url: url)
-    player = source
-    videoLayer = AVPlayerLayer(player: source)
-    self.completion = completion
-    super.init(nibName: nil, bundle: nil)
-  }
-  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-  override func viewDidLoad() {
-    super.viewDidLoad()
-    view.backgroundColor = .white
-    player.isMuted = true
-    videoLayer.videoGravity = .resizeAspectFill
-    view.layer.addSublayer(videoLayer)
-    let skip = UIButton(type: .system)
-    skip.setTitle("Skip intro", for: .normal)
-    skip.setTitleColor(.white, for: .normal)
-    skip.backgroundColor = UIColor.black.withAlphaComponent(0.7)
-    skip.layer.cornerRadius = 12
-    skip.translatesAutoresizingMaskIntoConstraints = false
-    skip.addTarget(self, action: #selector(finish), for: .touchUpInside)
-    view.addSubview(skip)
-    NSLayoutConstraint.activate([
-      skip.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-      skip.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-      skip.widthAnchor.constraint(greaterThanOrEqualToConstant: 110),
-      skip.heightAnchor.constraint(equalToConstant: 48)
-    ])
-    for name in [AVPlayerItem.didPlayToEndTimeNotification, AVPlayerItem.failedToPlayToEndTimeNotification] {
-      observations.append(NotificationCenter.default.addObserver(forName: name, object: player.currentItem, queue: .main) { [weak self] _ in self?.finish() })
-    }
-    observations.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-      self?.player.pause()
-      self?.timeout?.invalidate()
-    })
-    observations.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-      guard let self = self, self.completion != nil else { return }
-      self.player.play()
-    })
-    statusObservation = player.currentItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
-      if item.status == .failed { DispatchQueue.main.async { self?.finish() } }
-    }
-  }
-  override func viewDidAppear(_ animated: Bool) {
-    super.viewDidAppear(animated)
-    // A startup watchdog only. Playback completes on the actual movie-end event.
-    timeout = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
-      guard let self = self else { return }
-      if self.player.timeControlStatus != .playing { self.finish() }
-    }
-    player.play()
-  }
-  override func viewDidLayoutSubviews() {
-    super.viewDidLayoutSubviews()
-    videoLayer.frame = view.bounds
-  }
-  @objc private func finish() {
-    guard let callback = completion else { return }
-    completion = nil
-    player.pause()
-    timeout?.invalidate()
-    statusObservation = nil
-    observations.forEach { NotificationCenter.default.removeObserver($0) }
-    observations.removeAll()
-    dismiss(animated: false, completion: callback)
-  }
-  deinit {
-    timeout?.invalidate()
-    observations.forEach { NotificationCenter.default.removeObserver($0) }
-  }
-}
