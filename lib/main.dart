@@ -516,23 +516,23 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.dashboard_outlined, color: Colors.white),
-              label: 'Übersicht',
+              label: 'Ãœbersicht',
             ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
-              label: 'Termine',
+              label: 'Appointments',
             ),
             NavigationDestination(
               icon: Icon(Icons.receipt_long_outlined, color: Colors.white),
-              label: 'Aufträge',
+              label: 'AuftrÃ¤ge',
             ),
             NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline, color: Colors.white),
-              label: 'Nachrichten',
+              label: 'Messages',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline, color: Colors.white),
-              label: 'Profil',
+              label: 'Profile',
             ),
           ],
         ),

@@ -4,6 +4,9 @@ const portalPresentation = r'''
   if (!document.querySelector('.navend form[action="/customer/logout"]')) return;
   if (document.getElementById('las-app-style')) return;
   const style = document.createElement('style'); style.id = 'las-app-style';
+  const page = location.pathname;
+  const messagesPage = page === '/customer/messages';
+  const simplifiedPage = page === '/customer/dashboard' || page === '/customer/appointments' || messagesPage || /^\/customer\/orders\/\d+$/.test(page);
   style.textContent = `
     :root{color-scheme:dark;--blue:#007aff}
     html,body{background:#17191b!important;color:#f5f5f7!important}
@@ -25,6 +28,13 @@ const portalPresentation = r'''
     .las-primary{display:block;background:#007aff;color:white;padding:18px;border-radius:14px;text-align:center;text-decoration:none;font-weight:700;margin-top:18px}
     .las-others{margin:18px 0}.las-others summary{padding:16px;background:#252729;border-radius:14px}
   `;
+  if (!messagesPage) style.textContent += `
+    #messages,.messages,a[href='/customer/messages']{display:none!important}
+  `;
+  if (simplifiedPage) style.textContent += `
+    .balance-card,.news-area,.toast{display:none!important}
+    #content > p:has(a[href='/customer/archive']){display:none!important}
+  `;
   document.head.append(style);
   const main = document.querySelector('#content'); if (!main) return;
   const query = new URLSearchParams(location.search);
@@ -44,15 +54,33 @@ const portalPresentation = r'''
     const first=current[0];grid.replaceChildren(first);
     const status=first.querySelector('.status');
     if(status){const hero=document.createElement('p');hero.className='las-hero';hero.textContent=status.textContent;grid.before(hero);}
-    const other=cards.filter(card=>card!==first);
+    const other=current.filter(card=>card!==first);
     if(other.length){const details=document.createElement('details');details.className='las-others';const summary=document.createElement('summary');summary.textContent='Other orders ('+other.length+')';details.append(summary,...other);grid.after(details);}
     const orderLink=first.querySelector('a[href^="/customer/orders/"]');
     if(orderLink){const tiles=document.createElement('div');tiles.className='las-tiles';tiles.append(
-      tile(orderLink.getAttribute('href'),'Order details','Status and service progress'),
-      tile(orderLink.getAttribute('href'),'Photos & documents','Shared by your service team'),
-      tile('/customer/messages','Service advisor','Messages and questions'),
-      tile('/customer/archive','Service history','Previous visits and documents'));
+      tile(orderLink.getAttribute('href'),'Order Details','Status and service progress'),
+      tile(orderLink.getAttribute('href')+'#las-photos','Photos','Photos and workshop videos'),
+      tile(orderLink.getAttribute('href')+'#las-advisor','Service Advisor','Your service contact'),
+      tile('/customer/archive','Service History','Previous visits and documents'),
+      tile('/customer/appointments','Request an Appointment','Choose your vehicle and preferred time'));
       grid.after(tiles);}
+  }
+  if (/^\/customer\/orders\/\d+$/.test(page)) {
+    const markSections = () => {
+      main.querySelectorAll('section.panel').forEach(section => {
+        const heading = section.querySelector('h2');
+        if (heading?.textContent === 'Your workshop videos') {
+          heading.textContent = 'Photos & Videos';
+        }
+        if (heading?.textContent === 'Photos & Videos') section.id = 'las-photos';
+        if (section.querySelector('.detail') && heading?.textContent === 'Current status') section.id = 'las-advisor';
+      });
+    };
+    markSections();
+    new MutationObserver(markSections).observe(main, {childList:true,subtree:true});
+    if (['#las-photos','#las-advisor'].includes(location.hash)) {
+      document.getElementById(location.hash.slice(1))?.scrollIntoView({block:'start'});
+    }
   }
   if(location.pathname==='/customer/appointments' && query.get('app_home')==='1'){
     const heading=document.createElement('h1');heading.textContent='NEXT SERVICE?';
