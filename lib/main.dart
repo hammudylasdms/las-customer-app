@@ -428,7 +428,10 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             height: 42,
             child: Align(
               alignment: Alignment.topLeft,
-              child: LasWordmark(size: 24, color: lightAppearance ? Colors.black87 : Colors.white),
+              child: LasWordmark(
+                size: 24,
+                color: lightAppearance ? Colors.black87 : Colors.white,
+              ),
             ),
           ),
           actions: [
