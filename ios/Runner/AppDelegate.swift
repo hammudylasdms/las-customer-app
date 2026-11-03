@@ -13,23 +13,36 @@ import AVFoundation
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  private func presentBrandIntro(registrar: FlutterPluginRegistrar, result: @escaping FlutterResult, remainingAttempts: Int) {
+    guard !UIAccessibility.isReduceMotionEnabled else { result(nil); return }
+    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      .first { $0.activationState == .foregroundActive }
+    guard let root = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController,
+          root.viewIfLoaded?.window != nil, root.presentedViewController == nil else {
+      if remainingAttempts > 0 {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          self.presentBrandIntro(registrar: registrar, result: result, remainingAttempts: remainingAttempts - 1)
+        }
+      } else { result(FlutterError(code: "intro_not_ready", message: "Intro window was not ready", details: nil)) }
+      return
+    }
+    guard let path = Bundle.main.path(forResource: registrar.lookupKey(forAsset: "assets/branding/intro.mp4"), ofType: nil) else {
+      result(FlutterError(code: "intro_missing", message: "Intro video is missing from the app", details: nil)); return
+    }
+    let intro = LasIntroController(url: URL(fileURLWithPath: path)) { result(nil) }
+    intro.modalPresentationStyle = .fullScreen
+    root.present(intro, animated: false)
+  }
+
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LasDeviceLogin")!
     let introChannel = FlutterMethodChannel(name: "com.lastoptechnik/brand_intro", binaryMessenger: registrar.messenger())
     introChannel.setMethodCallHandler { call, result in
       guard call.method == "play" else { result(FlutterMethodNotImplemented); return }
-      DispatchQueue.main.async {
-        guard !UIAccessibility.isReduceMotionEnabled,
-              let path = Bundle.main.path(forResource: registrar.lookupKey(forAsset: "assets/branding/intro.mp4"), ofType: nil),
-              let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
-              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController,
-              root.presentedViewController == nil else { result(nil); return }
-        let intro = LasIntroController(url: URL(fileURLWithPath: path)) { result(nil) }
-        intro.modalPresentationStyle = .fullScreen
-        root.present(intro, animated: false)
-      }
+      DispatchQueue.main.async { self.presentBrandIntro(registrar: registrar, result: result, remainingAttempts: 30) }
     }
+
     let channel = FlutterMethodChannel(name: "com.lastoptechnik/device_login", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { call, result in
       DispatchQueue.global(qos: .userInitiated).async {

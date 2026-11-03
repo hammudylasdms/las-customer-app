@@ -58,7 +58,8 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool obscured = false;
   bool pushBusy = false;
   bool loginBusy = false;
-  bool showLogin = false;
+  bool showLogin = true;
+  bool pageReady = false;
   bool faceIdEnrolled = false;
   int selectedTab = 0;
   Completer<bool>? loginNavigation;
@@ -152,10 +153,11 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             if (mounted) setState(() => progress = value);
           },
           onPageStarted: (_) {
+            if (mounted) setState(() => pageReady = false);
             push.registration.cancelPending();
             if (mounted) setState(() => failed = false);
           },
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
             final uri = Uri.tryParse(url);
             if (uri != null && widget.policy.sameOrigin(uri)) {
               final loginPage =
@@ -164,11 +166,9 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
                   uri.path == '/customer/login';
               if (mounted) setState(() => showLogin = loginPage);
               if (!loginPage) {
-                unawaited(
-                  controller
-                      .runJavaScript(portalPresentation)
-                      .catchError((Object _) {}),
-                );
+                try {
+                  await controller.runJavaScript(portalPresentation);
+                } catch (_) {}
               }
               if (loginPage && deviceLoginEnabled && Platform.isIOS) {
                 unawaited(
@@ -187,6 +187,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
                 );
               }
             }
+            if (mounted) setState(() => pageReady = true);
             if (pushEnabled) {
               unawaited(push.registerCurrentPage());
             }
@@ -516,7 +517,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.dashboard_outlined, color: Colors.white),
-              label: 'Ãœbersicht',
+              label: 'ÃƒÅ“bersicht',
             ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
@@ -524,7 +525,7 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             ),
             NavigationDestination(
               icon: Icon(Icons.receipt_long_outlined, color: Colors.white),
-              label: 'AuftrÃ¤ge',
+              label: 'AuftrÃƒÂ¤ge',
             ),
             NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline, color: Colors.white),
@@ -537,6 +538,13 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           ],
         ),
       ),
+      if (!pageReady && !failed && !showLogin)
+        Positioned.fill(
+          child: ColoredBox(
+            color: const Color(0xff17191b),
+            child: const Center(child: CircularProgressIndicator()),
+          ),
+        ),
       if (showLogin)
         Positioned.fill(
           child: CustomerLoginScreen(

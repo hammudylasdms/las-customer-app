@@ -44,16 +44,9 @@ class _BrandedEntryState extends State<BrandedEntry> {
       widget.child,
       if (showIntro)
         Positioned.fill(
-          child: ColoredBox(
-            color: Colors.white,
-            child: Center(
-              child: Image.asset(
-                'assets/branding/app_logo.png',
-                width: 180,
-                height: 180,
-                semanticLabel: 'BMW logo',
-              ),
-            ),
+          child: Image.asset(
+            'assets/branding/login_background.png',
+            fit: BoxFit.cover,
           ),
         ),
     ],

@@ -37,12 +37,30 @@ const portalPresentation = r'''
   `;
   document.head.append(style);
   const main = document.querySelector('#content'); if (!main) return;
+  // Translate raw order-status codes only, never financial document labels.
+  const normalizeStatuses = () => main.querySelectorAll('.status').forEach(status => {
+    if (status.textContent.trim().toUpperCase() === 'CREDIT_NOTE') status.textContent = 'Invoiced';
+  });
+  normalizeStatuses();
+  new MutationObserver(normalizeStatuses).observe(main, {childList:true,subtree:true});
   const query = new URLSearchParams(location.search);
   const tile = (href, title, description) => {
     const link=document.createElement('a');link.href=href;
     const label=document.createElement('span');label.textContent=title;link.append(label);
     const sub=document.createElement('small');sub.textContent=description;link.append(sub);return link;
   };
+  if (page === '/customer/dashboard' && query.get('app_view') === 'orders') {
+    const grid = main.querySelector('.order-grid');
+    if (grid) {
+      grid.querySelectorAll('.vehicle').forEach(card => {
+        if (['Invoiced','Cancelled'].includes(card.querySelector('.status')?.textContent.trim())) card.remove();
+      });
+      if (!grid.children.length) {
+        const empty = document.createElement('p'); empty.textContent = 'No current orders.'; grid.append(empty);
+      }
+    }
+    const title=main.querySelector('h1'); if(title)title.textContent='Current Orders';
+  }
   if (location.pathname === '/customer/dashboard' && query.get('app_view') !== 'orders') {
     const grid=main.querySelector('.order-grid'); if(!grid)return;
     const cards=Array.from(grid.querySelectorAll('.vehicle'));
@@ -59,9 +77,10 @@ const portalPresentation = r'''
     const orderLink=first.querySelector('a[href^="/customer/orders/"]');
     if(orderLink){const tiles=document.createElement('div');tiles.className='las-tiles';tiles.append(
       tile(orderLink.getAttribute('href'),'Order Details','Status and service progress'),
-      tile(orderLink.getAttribute('href')+'#las-photos','Photos','Photos and workshop videos'),
-      tile(orderLink.getAttribute('href')+'#las-advisor','Service Advisor','Your service contact'),
-      tile('/customer/archive','Service History','Previous visits and documents'),
+      tile(orderLink.getAttribute('href')+'#las-photos','my Photos/Videos','Photos and workshop videos'),
+      tile(orderLink.getAttribute('href')+'#las-advisor','my Service Advisor','Your service contact'),
+      tile('/customer/archive','my Service History','Previous visits and documents'),
+      tile('/customer/mobile/auth/payments','Pay my Bill / Make Downpayment','Open invoices, payment options and Add funds'),
       tile('/customer/appointments','Request an Appointment','Choose your vehicle and preferred time'));
       grid.after(tiles);}
   }
@@ -86,6 +105,11 @@ const portalPresentation = r'''
     const heading=document.createElement('h1');heading.textContent='NEXT SERVICE?';
     const intro=document.createElement('p');intro.textContent='No open order. Choose your vehicle and book your next visit.';
     main.prepend(heading,intro);
+    const payments=document.createElement('div');payments.className='las-tiles';
+    payments.append(tile('/customer/mobile/auth/payments','Pay my Bill / Make Downpayment','Open invoices and Add funds'));
+    main.prepend(payments);
   }
+  // Keep appointment entry as a neutral tile; hide the redundant legacy CTA.
+  main.querySelectorAll('a.button[href="/customer/appointments"]').forEach(link => link.style.setProperty('display','none','important'));
 })();
 ''';
