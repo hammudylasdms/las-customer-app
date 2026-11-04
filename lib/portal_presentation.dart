@@ -171,8 +171,23 @@ const portalPresentation = r'''
   const applyTheme=value=>{document.documentElement.dataset.lasTheme=value;try{localStorage.setItem('las-theme',value);}catch(_){}window.LasAppearance?.postMessage(value);};
   const switcher=el('div',null,'las-appearance'),label=el('label','Appearance '),select=el('select');
   for(const [value,text] of [['dark','Dark'],['light','Light']]){const option=el('option',text);option.value=value;select.append(option);}
-  let saved='dark';try{saved=localStorage.getItem('las-theme')||'dark';}catch(_){}select.value=saved;select.onchange=()=>applyTheme(select.value);label.append(select);switcher.append(label);if(page==='/customer/account')main.append(switcher);applyTheme(saved);
+  let saved='dark';try{saved=localStorage.getItem('las-theme')||'dark';}catch(_){}select.value=saved;select.onchange=()=>applyTheme(select.value);label.append(select);switcher.append(label);if(page==='/customer/account'){
+    main.append(switcher);
+    const legal = el('section', null, 'panel las-legal');
+    legal.append(el('h2', 'Legal'));
+    for (const [label, url] of [
+      ['Privacy Policy', 'https://lastoptechnik.com/en/privacy/'],
+      ['Terms and Conditions', 'https://lastoptechnik.com/en/terms/'],
+    ]) {
+      const link = el('a', label);
+      link.href = url;
+      legal.append(link);
+    }
+    main.append(legal);
+  }
+  applyTheme(saved);
   style.textContent+=`
+    .las-legal{margin:20px 0;padding:18px}.las-legal a{display:flex;align-items:center;min-height:44px}.las-legal a+a{border-top:1px solid #8886}
     .las-appearance{max-width:900px;margin:auto;padding:12px 20px;text-align:right}.las-appearance select{width:auto;padding:8px;margin-left:8px}
     .las-balance{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid #555}.las-balance .las-credit{color:#25b875!important}.las-balance .las-due{color:#ff6363!important}
     .las-vehicle{padding:24px;margin:18px 0}.las-vehicle-row{display:flex;align-items:center;gap:20px;margin-top:20px}.las-vehicle-row img{width:58px;height:58px;object-fit:contain}.las-vehicle h2{font-size:18px!important;margin:0}.las-vehicle p{margin:8px 0 0}.las-tiles{grid-template-columns:repeat(2,minmax(0,1fr))!important}.las-tiles a:last-child{grid-column:1/-1}.las-tiles a{overflow-wrap:break-word}.news-area a{display:block;padding:9px 0}.las-tiles .las-appointment{background:#007aff!important;color:white!important}.las-appointment small{color:white!important}
