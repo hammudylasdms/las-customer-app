@@ -60,6 +60,8 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
   bool loginBusy = false;
   bool showLogin = true;
   bool pageReady = false;
+  int pageGeneration = 0;
+  Completer<void>? presentationReady;
   bool lightAppearance = false;
   bool faceIdEnrolled = false;
   int selectedTab = 0;
@@ -110,6 +112,17 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
           if (uri == null || !widget.policy.sameOrigin(uri)) return;
           if (mounted && ['light', 'dark'].contains(message.message)) {
             setState(() => lightAppearance = message.message == 'light');
+          }
+        },
+      );
+      await controller.addJavaScriptChannel(
+        'LasPageReady',
+        onMessageReceived: (message) {
+          final pending = presentationReady;
+          if (message.message == pageGeneration.toString() &&
+              pending != null &&
+              !pending.isCompleted) {
+            pending.complete();
           }
         },
       );
@@ -165,11 +178,19 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
             if (mounted) setState(() => progress = value);
           },
           onPageStarted: (_) {
+            pageGeneration++;
+            final previous = presentationReady;
+            if (previous != null && !previous.isCompleted) previous.complete();
             if (mounted) setState(() => pageReady = false);
             push.registration.cancelPending();
             if (mounted) setState(() => failed = false);
           },
           onPageFinished: (url) async {
+            final generation = pageGeneration;
+            if (await controller.currentUrl() != url ||
+                generation != pageGeneration) {
+              return;
+            }
             final uri = Uri.tryParse(url);
             if (uri != null && widget.policy.sameOrigin(uri)) {
               final loginPage =
@@ -179,8 +200,18 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
               if (mounted) setState(() => showLogin = loginPage);
               if (!loginPage) {
                 try {
-                  await controller.runJavaScript(portalPresentation);
-                } catch (_) {}
+                  final ready = Completer<void>();
+                  presentationReady = ready;
+                  await controller.runJavaScript(
+                    'void (async () => { try { await $portalPresentation } finally { requestAnimationFrame(() => requestAnimationFrame(() => LasPageReady.postMessage("$generation"))); } })();',
+                  );
+                  await ready.future.timeout(const Duration(seconds: 18));
+                } catch (_) {
+                  if (mounted && generation == pageGeneration) {
+                    setState(() => failed = true);
+                  }
+                }
+                if (generation != pageGeneration) return;
               }
               if (loginPage && deviceLoginEnabled && Platform.isIOS) {
                 unawaited(
@@ -540,7 +571,10 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
                 : const Color(0xff34383c),
             selectedIndex: selectedTab,
             onDestinationSelected: (index) {
-              setState(() => selectedTab = index);
+              setState(() {
+                selectedTab = index;
+                pageReady = false;
+              });
               const paths = [
                 '/customer/dashboard',
                 '/customer/appointments',
@@ -597,7 +631,9 @@ class _PortalAppState extends State<PortalApp> with WidgetsBindingObserver {
       if (!pageReady && !failed && !showLogin)
         Positioned.fill(
           child: ColoredBox(
-            color: const Color(0xff17191b),
+            color: lightAppearance
+                ? const Color(0xfff3f5f7)
+                : const Color(0xff17191b),
             child: const Center(child: CircularProgressIndicator()),
           ),
         ),

@@ -54,7 +54,7 @@ const portalPresentation = r'''
   let data=null;
   try{
     const id=/^\/customer\/orders\/(\d+)$/.exec(page)?.[1];
-    const r=await fetch('/customer/mobile/auth/experience'+(id?'?order_id='+id:''),{credentials:'same-origin',cache:'no-store'});
+    const r=await fetch('/customer/mobile/auth/experience'+(id?'?order_id='+id:''),{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(12000)});
     if(r.status===401){location.replace('/customer');return;}if(!r.ok)throw Error();data=await r.json();
   }catch(_){main.prepend(el('p','Some information could not be loaded. Please reopen this page.'));}
   const orders=data?.orders||[],current=orders.filter(o=>!closed(o)),first=current[0];
@@ -72,7 +72,35 @@ const portalPresentation = r'''
       const amount=balance.querySelector('.balance-actions > b')?.textContent;
       if(amount){const row=el('div',null,'las-balance');row.append(el('span','Account balance'),el('strong',(balance.classList.contains('credit')?'+ ':'− ')+amount,balance.classList.contains('credit')?'las-credit':'las-due'));home.append(row);}
     }
-    if(news)home.append(news);
+    if(news){
+      const latest=el('section',null,'news-area');
+      latest.append(el('h2','News'));
+      const list=el('div','Loading news…');latest.append(list);home.append(latest);
+      const renderNews=items=>{
+        const links=items.slice().sort((a,b)=>Number(b.news_id)-Number(a.news_id)).slice(0,3).map(item=>{
+          const link=el('a',item.message);
+          if(/appointment/i.test(item.message)) link.href='/customer/appointments#my-appointments';
+          else if(/withdrawn/i.test(item.message)&&item.order_id) link.href='/customer/orders/'+item.order_id;
+          else if(item.document_id) link.href='/customer/documents/'+item.document_id;
+          else if(/message/i.test(item.message)) link.href='/customer/messages';
+          else if(item.order_id) link.href='/customer/orders/'+item.order_id;
+          else link.href='/customer/account';
+          return link;
+        });
+        list.replaceChildren(...links);
+        if(!links.length)list.textContent='No new updates.';
+      };
+      // Reuse the portal's authenticated live feed and its existing polling.
+      const originalFetch=window.fetch.bind(window);
+      const livePath='/customer/live';
+      window.fetch=async(...args)=>{
+        const response=await originalFetch(...args);
+        if(response.ok && new URL(response.url,location.href).pathname===livePath)
+          response.clone().json().then(payload=>renderNews(payload.news)).catch(()=>{});
+        return response;
+      };
+      originalFetch(livePath,{credentials:'same-origin',cache:'no-store'}).then(r=>r.json()).then(payload=>renderNews(payload.news)).catch(()=>{list.textContent='News could not be loaded.';});
+    }
     if(data){data.vehicles.forEach(v=>home.append(vehicle(v)));if(!data.vehicles.length)home.append(el('p','No vehicle is registered to your account yet.'));}
     else home.append(el('p','Your vehicles are temporarily unavailable.'));
     if(first){const active=tile('/customer/orders/'+first.order_id,'Current Order · '+first.order_number,'View your workshop progress');active.className='las-current-order';home.append(active);}
@@ -120,14 +148,32 @@ const portalPresentation = r'''
     data.receipts.forEach(r=>receipts.append(tile('/customer/receipts/'+encodeURIComponent(r.receipt_number),'Payment receipt '+r.receipt_number,'AED '+Number(r.amount).toFixed(2))));
     if(!data.receipts.length)receipts.append(el('p','No payment receipts are available for this order yet.'));main.append(receipts);
   }
+  if(page==='/customer/appointments'){
+    const heading=Array.from(main.querySelectorAll('h2.section-title')).find(h=>h.textContent.trim().toLowerCase()==='my appointments');
+    if(heading){
+      heading.id='my-appointments';
+      const cards=[];let next=heading.nextElementSibling;
+      while(next?.matches('article.vehicle')){cards.push(next);next=next.nextElementSibling;}
+      // The booking page already sorts by appointment date and time, newest first.
+      const first=cards[0];cards.slice(1).forEach(card=>card.remove());
+      const match=first?.querySelector('h2')?.textContent.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+      if(match){
+        const date=Date.UTC(+match[3],+match[2]-1,+match[1]);
+        const gulf=new Date(Date.now()+4*3600000);
+        const today=Date.UTC(gulf.getUTCFullYear(),gulf.getUTCMonth(),gulf.getUTCDate());
+        if(today-date>14*86400000)first.replaceWith(el('p','No recent appointments.'));
+      }
+      if(location.hash==='#my-appointments')heading.scrollIntoView();
+    }
+  }
   const applyTheme=value=>{document.documentElement.dataset.lasTheme=value;try{localStorage.setItem('las-theme',value);}catch(_){}window.LasAppearance?.postMessage(value);};
   const switcher=el('div',null,'las-appearance'),label=el('label','Appearance '),select=el('select');
   for(const [value,text] of [['dark','Dark'],['light','Light']]){const option=el('option',text);option.value=value;select.append(option);}
-  let saved='dark';try{saved=localStorage.getItem('las-theme')||'dark';}catch(_){}select.value=saved;select.onchange=()=>applyTheme(select.value);label.append(select);switcher.append(label);main.before(switcher);applyTheme(saved);
+  let saved='dark';try{saved=localStorage.getItem('las-theme')||'dark';}catch(_){}select.value=saved;select.onchange=()=>applyTheme(select.value);label.append(select);switcher.append(label);if(page==='/customer/account')main.append(switcher);applyTheme(saved);
   style.textContent+=`
     .las-appearance{max-width:900px;margin:auto;padding:12px 20px;text-align:right}.las-appearance select{width:auto;padding:8px;margin-left:8px}
     .las-balance{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid #555}.las-balance .las-credit{color:#25b875!important}.las-balance .las-due{color:#ff6363!important}
-    .las-vehicle{padding:24px;margin:18px 0}.las-vehicle-row{display:flex;align-items:center;gap:20px;margin-top:20px}.las-vehicle-row img{width:58px;height:58px;object-fit:contain}.las-vehicle h2{font-size:18px!important;margin:0}.las-vehicle p{margin:8px 0 0}.las-tiles{grid-template-columns:1fr!important}.las-tiles .las-appointment{background:#007aff!important;color:white!important}.las-appointment small{color:white!important}
+    .las-vehicle{padding:24px;margin:18px 0}.las-vehicle-row{display:flex;align-items:center;gap:20px;margin-top:20px}.las-vehicle-row img{width:58px;height:58px;object-fit:contain}.las-vehicle h2{font-size:18px!important;margin:0}.las-vehicle p{margin:8px 0 0}.las-tiles{grid-template-columns:repeat(2,minmax(0,1fr))!important}.las-tiles a:last-child{grid-column:1/-1}.las-tiles a{overflow-wrap:break-word}.news-area a{display:block;padding:9px 0}.las-tiles .las-appointment{background:#007aff!important;color:white!important}.las-appointment small{color:white!important}
     .las-current-order{display:block;padding:20px;background:#252729;border-radius:16px}.las-current-order small{display:block;margin-top:8px}.news-area{padding:16px!important;margin:16px 0!important}.news-area h2{font-size:17px!important;margin:0 0 8px}.panel>a{display:block;margin:12px 0}
     html[data-las-theme=light]{color-scheme:light!important}html[data-las-theme=light],html[data-las-theme=light] body{background:#f3f5f7!important;color:#1c2430!important}
     html[data-las-theme=light] h1,html[data-las-theme=light] h2,html[data-las-theme=light] h3,html[data-las-theme=light] label,html[data-las-theme=light] strong{color:#1c2430!important}
