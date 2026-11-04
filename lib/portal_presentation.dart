@@ -25,6 +25,7 @@ const portalPresentation = r'''
     .order-grid{display:grid!important;grid-template-columns:1fr!important;gap:14px!important}
     .las-tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
     .las-tiles a{display:flex;flex-direction:column;justify-content:space-between;min-height:105px;padding:18px;background:#252729;border:1px solid #35383c;border-radius:16px;color:white;text-decoration:none;font-size:17px;font-weight:600}
+    .las-detail-link > small{display:block;margin-top:4px}
     .las-tiles small{font-size:13px;font-weight:400;color:#b8bcc2;margin-top:8px}
     .las-hero{font-size:44px!important;font-weight:800;line-height:1.08;letter-spacing:-1px;margin:8px 0 24px!important;color:white!important}
     .las-primary{display:block;background:#007aff;color:white;padding:18px;border-radius:14px;text-align:center;text-decoration:none;font-weight:700;margin-top:18px}
@@ -41,7 +42,8 @@ const portalPresentation = r'''
   document.head.append(style);
   const main = document.querySelector('#content'); if (!main) return;
   // Translate raw order-status codes only, never financial document labels.
-  const normalizeStatuses = () => main.querySelectorAll('.status').forEach(status => {
+  const normalizeStatuses = () => main.querySelectorAll('.status, .order-progress-head strong').forEach(status => {
+    if (status.textContent.trim() === 'SERVICE_ADVISOR_TAKEN') status.textContent = 'Service advisor assigned';
     if (status.textContent.trim().toUpperCase() === 'CREDIT_NOTE') status.textContent = 'Invoiced';
   });
   normalizeStatuses();
@@ -49,7 +51,7 @@ const portalPresentation = r'''
   const query=new URLSearchParams(location.search), section=query.get('app_section');
   const overview=page==='/customer/dashboard' && !query.has('app_view') && !section;
   const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text)e.textContent=text;if(cls)e.className=cls;return e;};
-  const tile=(href,title,sub)=>{const a=el('a');a.href=href;a.append(el('span',title),el('small',sub));return a;};
+  const tile=(href,title,sub)=>{const a=el('a',null,'las-detail-link');a.href=href;a.append(el('span',title),el('small',sub));return a;};
   const closed=o=>['INVOICED','CANCELLED','CREDIT_NOTE'].includes(o.status);
   let data=null;
   try{
