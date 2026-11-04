@@ -1,0 +1,127 @@
+name: My LAS iPad Screenshot
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  screenshot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Start 13-inch iPad Pro
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/ipads.json"
+          device=$(python3 - "$RUNNER_TEMP/ipads.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          for runtime, rows in reversed(sorted(json.loads(Path(sys.argv[1]).read_text())['devices'].items())):
+              for row in rows:
+                  if 'SimRuntime.iOS-' in runtime and 'iPad Pro' in row['name'] and '13-inch' in row['name']:
+                      print(row['udid']); sys.exit(0)
+          sys.exit('No available 13-inch iPad Pro in this runner')
+          PY
+          )
+          echo "IPAD_ID=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl status_bar "$device" override --time '9:41' --batteryState charged --batteryLevel 100
+      - name: Prepare simulator-only test harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = d3b14c876900e553bc736ca19295fc09e3853e8e
+          export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          swift scripts/prepare_branding.swift
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pubspec.yaml')
+          p.write_text(p.read_text().replace('dev_dependencies:', 'dev_dependencies:\n  flutter_driver:\n    sdk: flutter', 1))
+          p=Path('lib/login_screen.dart')
+          s=p.read_text()
+          assert s.count('child: TextField(')==1, 'Login fields changed; update selectors'
+          p.write_text(s.replace('child: TextField(', "child: TextField(key: ValueKey(secret ? 'demo-password' : 'demo-user'),"))
+          PY
+          flutter pub get
+          mkdir -p test_driver
+          cat > test_driver/ipad.dart <<'DART'
+          import 'package:flutter/widgets.dart';
+          import 'package:flutter_driver/driver_extension.dart';
+          import 'package:webview_flutter/webview_flutter.dart';
+          import 'package:las_customer/main.dart' as app;
+
+          void main() {
+            enableFlutterDriverExtension(handler: (_) async {
+              WebViewController? web;
+              void visit(Element element) {
+                final widget = element.widget;
+                if (widget is WebViewWidget) web = widget.controller;
+                element.visitChildren(visit);
+              }
+              WidgetsBinding.instance.rootElement?.visitChildren(visit);
+              if (web == null) return 'wait';
+              final ready = await web!.runJavaScriptReturningResult(
+                "location.pathname === '/customer/dashboard' && !!document.querySelector('.las-vehicle') && !!document.querySelector('.las-tiles') && document.querySelector('h1')?.textContent === 'Welcome back.'"
+              );
+              return ready.toString();
+            });
+            app.main();
+          }
+          DART
+          cat > test_driver/ipad_test.dart <<'DART'
+          import 'dart:io';
+          import 'package:flutter_driver/flutter_driver.dart';
+
+          Future<void> main() async {
+            final driver = await FlutterDriver.connect(logCommunicationToFile:false);
+            try {
+              await driver.runUnsynchronized(() async {
+                for (final pair in [('demo-user','DEMO_USER'),('demo-password','DEMO_PASSWORD')]) {
+                  final field = find.byValueKey(pair.$1);
+                  await driver.scrollIntoView(field);
+                  await driver.tap(field);
+                  await driver.enterText(Platform.environment[pair.$2]!);
+                }
+                final signIn = find.text('Sign In');
+                await driver.scrollIntoView(signIn);
+                await driver.tap(signIn);
+                for (var i=0;i<60;i++) {
+                  await Future<void>.delayed(const Duration(seconds:1));
+                  if (await driver.requestData('ready') != 'true') continue;
+                  await Future<void>.delayed(const Duration(seconds:2));
+                  final result=await Process.run('xcrun',['simctl','io',Platform.environment['IPAD_ID']!,'screenshot','--type=png','ipad-original.png']);
+                  if(result.exitCode!=0) throw StateError('iPad capture failed');
+                  return;
+                }
+                throw StateError('Demo overview did not load');
+              });
+            } finally { await driver.close(); }
+          }
+          DART
+      - name: Open demo overview and take screenshot
+        env:
+          DEMO_USER: mohamadalshukri
+          DEMO_PASSWORD: ${{ secrets.LAS_REVIEW_DEMO_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEMO_PASSWORD" || { echo 'LAS_REVIEW_DEMO_PASSWORD is missing'; exit 1; }
+          flutter drive -d "$IPAD_ID" --target=test_driver/ipad.dart --driver=test_driver/ipad_test.dart --dart-define=ENABLE_DEVICE_LOGIN=true --dart-define=ENABLE_PUSH=false > "$RUNNER_TEMP/ipad-drive.log" 2>&1 || { echo 'Build or demo sign-in failed. Check simulator and demo credentials.'; exit 1; }
+          sips -s format jpeg -s formatOptions 100 ipad-original.png --out My-LAS-iPad-Overview.jpg >/dev/null
+          w=$(sips -g pixelWidth My-LAS-iPad-Overview.jpg | awk '/pixelWidth/{print $2}')
+          h=$(sips -g pixelHeight My-LAS-iPad-Overview.jpg | awk '/pixelHeight/{print $2}')
+          case "$w:$h" in 2064:2752|2048:2732) ;; *) echo "Unexpected size $w x $h"; exit 1;; esac
+      - uses: actions/upload-artifact@v7
+        with:
+          name: My-LAS-iPad-13-Screenshot
+          path: My-LAS-iPad-Overview.jpg
+          if-no-files-found: error
+          retention-days: 7
