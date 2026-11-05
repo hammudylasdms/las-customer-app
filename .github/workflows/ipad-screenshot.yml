@@ -69,7 +69,7 @@ jobs:
               final web = app.screenshotController;
               if (web == null) return 'wait';
               final ready = await web.runJavaScriptReturningResult(
-                "document.querySelector('.las-vehicle-row') && document.querySelector('.las-tiles') && location.pathname === '/customer/dashboard' ? 'overview-ready' : 'waiting'"
+                "(() => { const p = location.pathname.replace(/\\/\$/, ''); const t = document.body?.innerText.toLowerCase() || ''; if (t.includes('cross-site login')) return 'cross-site-blocked'; if (p === '/customer/dashboard') return document.querySelector('.las-tiles') ? 'overview-ready' : 'dashboard-without-tiles'; if (document.querySelector('input[type=password]')) return 'login-page'; return 'other-page'; })()"
               );
               return ready.toString();
             });
@@ -96,11 +96,23 @@ jobs:
                 await driver.scrollIntoView(signIn);
                 await driver.tap(signIn);
                 print('IPAD_STAGE: submitted login; waiting for overview');
-                for (var i=0;i<60;i++) {
+                String lastState = '';
+                for (var i=0;i<90;i++) {
                   await Future<void>.delayed(const Duration(seconds:1));
                   try {
-                    if (await driver.requestData('ready', timeout: const Duration(seconds: 5)) != 'overview-ready') continue;
-                  } catch (_) { continue; } // WebView may be replacing its login document.
+                    final state = (await driver.requestData('ready', timeout: const Duration(seconds: 5))).replaceAll('"', '');
+                    const allowed = {'wait', 'cross-site-blocked', 'overview-ready', 'dashboard-without-tiles', 'login-page', 'other-page'};
+                    final safeState = allowed.contains(state) ? state : 'unknown-response';
+                    if (safeState != lastState) {
+                      print('IPAD_STATE: $safeState');
+                      lastState = safeState;
+                    }
+                    if (state != 'overview-ready') continue;
+                  } catch (_) {
+                    if (lastState != 'driver-query-failed') print('IPAD_STATE: driver-query-failed');
+                    lastState = 'driver-query-failed';
+                    continue;
+                  }
                   await Future<void>.delayed(const Duration(seconds:2));
                   print('IPAD_STAGE: overview ready');
                   final image = await Process.run('xcrun', ['simctl', 'io', Platform.environment['IPAD_ID']!, 'screenshot', '--type=png', 'ipad-original.png']);
@@ -108,6 +120,7 @@ jobs:
                   print('IPAD_STAGE: screenshot saved');
                   return;
                 }
+                await Process.run('xcrun', ['simctl', 'io', Platform.environment['IPAD_ID']!, 'screenshot', '--type=png', 'ipad-diagnostic.png']);
                 throw StateError('Demo overview did not load');
               });
             } finally { await driver.close(); }
@@ -125,6 +138,7 @@ jobs:
           test -n "$DEMO_PASSWORD" || { echo 'LAS_REVIEW_DEMO_PASSWORD is missing'; exit 1; }
           flutter drive -d "$IPAD_ID" --target=test_driver/ipad.dart --driver=test_driver/ipad_test.dart --dart-define=ENABLE_DEVICE_LOGIN=true --dart-define=ENABLE_PUSH=false > "$RUNNER_TEMP/ipad-drive.log" 2>&1 || {
             grep -oE 'IPAD_STAGE: (connecting driver|locating login fields|submitted login; waiting for overview|overview ready|screenshot saved)' "$RUNNER_TEMP/ipad-drive.log" || true
+            grep -oE 'IPAD_STATE: (wait|cross-site-blocked|overview-ready|dashboard-without-tiles|login-page|other-page|unknown-response|driver-query-failed)' "$RUNNER_TEMP/ipad-drive.log" || true
             echo 'Demo overview test failed; see the last stage above.'
             exit 1
           }
@@ -142,3 +156,11 @@ jobs:
           path: My-LAS-iPad-Overview.jpg
           if-no-files-found: error
           retention-days: 7
+      - name: Upload diagnostic screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: My-LAS-iPad-Diagnostic
+          path: ipad-diagnostic.png
+          if-no-files-found: ignore
+          retention-days: 1
