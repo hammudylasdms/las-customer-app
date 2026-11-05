@@ -49,26 +49,26 @@ jobs:
           s=p.read_text()
           assert s.count('child: TextField(')==1, 'Login fields changed; update selectors'
           p.write_text(s.replace('child: TextField(', "child: TextField(key: ValueKey(secret ? 'demo-password' : 'demo-user'),"))
+          p=Path('lib/main.dart')
+          s=p.read_text()
+          marker='class PortalApp extends StatefulWidget {'
+          assignment='controller = WebViewController.fromPlatformCreationParams(params);'
+          assert s.count(marker)==1 and s.count(assignment)==1, 'Portal controller changed; update screenshot harness'
+          s=s.replace(marker, 'WebViewController? screenshotController;\n\n'+marker, 1)
+          s=s.replace(assignment, assignment+'\n    screenshotController = controller;', 1)
+          p.write_text(s)
           PY
           flutter pub get
           mkdir -p test_driver
           cat > test_driver/ipad.dart <<'DART'
-          import 'package:flutter/widgets.dart';
           import 'package:flutter_driver/driver_extension.dart';
-          import 'package:webview_flutter/webview_flutter.dart';
           import 'package:las_customer/main.dart' as app;
 
           void main() {
             enableFlutterDriverExtension(handler: (_) async {
-              WebViewController? web;
-              void visit(Element element) {
-                final widget = element.widget;
-                if (widget is WebViewWidget) web = widget.controller;
-                element.visitChildren(visit);
-              }
-              WidgetsBinding.instance.rootElement?.visitChildren(visit);
+              final web = app.screenshotController;
               if (web == null) return 'wait';
-              final ready = await web!.runJavaScriptReturningResult(
+              final ready = await web.runJavaScriptReturningResult(
                 "document.querySelector('.las-vehicle-row') && document.querySelector('.las-tiles') && location.pathname === '/customer/dashboard' ? 'overview-ready' : 'waiting'"
               );
               return ready.toString();
